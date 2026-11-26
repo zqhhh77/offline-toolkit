@@ -2,11 +2,6 @@ name: Build Nginx 1.31.10 for Kylin V10 (x86_64)
 
 on:
   workflow_dispatch:
-    inputs:
-      source_sha256:
-        description: 'Verified SHA-256 of nginx-1.31.10.tar.gz'
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -24,28 +19,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check input and prepare build image
-        env:
-          NGINX_SOURCE_SHA256: ${{ inputs.source_sha256 }}
+      - name: Prepare build image
         run: |
-          if [[ ! $NGINX_SOURCE_SHA256 =~ ^[a-fA-F0-9]{64}$ ]]; then
-            echo '::error::source_sha256 must contain exactly 64 hexadecimal characters'
-            exit 1
-          fi
           docker pull --platform linux/amd64 "$ROCKY_IMAGE"
           image=$(docker image inspect --format '{{index .RepoDigests 0}}' "$ROCKY_IMAGE")
           printf 'BUILD_IMAGE=%s\n' "$image" >> "$GITHUB_ENV"
 
       - name: Build and package
         env:
-          NGINX_SOURCE_SHA256: ${{ inputs.source_sha256 }}
           BUILD_COMMIT: ${{ github.sha }}
         run: |
           mkdir -p dist
           docker run --rm --pull never --platform linux/amd64 \
             --mount "type=bind,source=$PWD,target=/src,readonly" \
             --mount "type=bind,source=$PWD/dist,target=/out" \
-            -e NGINX_SOURCE_SHA256 -e BUILD_COMMIT -e BUILD_IMAGE \
+            -e BUILD_COMMIT -e BUILD_IMAGE \
             "$BUILD_IMAGE" bash /src/scripts/nginx/build-kylin-v10.sh /out
 
       - name: Verify archive and test with networking disabled

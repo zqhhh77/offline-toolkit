@@ -5,7 +5,7 @@
 ## 在 GitHub Actions 构建
 
 1. 将项目推送到 GitHub 仓库，确保工作流文件已进入默认分支。
-2. 在 **Actions → Build Nginx 1.31.10 for Kylin V10 (x86_64) → Run workflow** 填写 `source_sha256`。该值是 `https://nginx.org/download/nginx-1.31.10.tar.gz` 的可信 SHA-256，不是产物的 SHA-256；应从可信发布记录获取，或从已使用可信上游签名验证的同一源码归档计算。不能只对未经验证的下载结果计算哈希再把它当作可信值。
+2. 在 **Actions → Build Nginx 1.31.10 for Kylin V10 (x86_64) → Run workflow** 选择 `main` 后运行，无需填写参数。CI 下载源码及其独立 PGP 签名，使用固定指纹的 Nginx 上游公钥验签；验签失败时不会解包或编译。
 3. 工作流在 GitHub 托管 runner 下载、构建、打包，并在无外网的干净 Rocky 容器中检查模块加载、配置和 HTTP 响应。测试通过后，在该次运行的 **Artifacts** 下载 `nginx-1.31.10-kylin-v10-halberd-x86_64`，从外层 ZIP 取出 `.tar.gz` 与 `.tar.gz.sha256`，一起传入离线服务器。保持 `.tar.gz` 原样，以保留可执行权限。
 
 构建以 Rocky 8 标签解析出的镜像摘要运行，同次测试使用同一摘要；镜像标签及 RPM 仓库内容仍会更新。包内 `BUILD-INFO.txt` 记录实际镜像、源码哈希、构建参数和 RPM 版本，不承诺跨次构建逐字节一致。

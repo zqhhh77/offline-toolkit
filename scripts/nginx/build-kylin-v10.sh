@@ -6,11 +6,11 @@ repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
 version=1.31.10
 name="nginx-${version}-kylin-v10-halberd-x86_64"
 url="https://nginx.org/download/nginx-${version}.tar.gz"
+# Nginx 官网发布的 Sergey Kandaurov 公钥；更新源码版本时重新核对签名者。
+signer_fingerprint=D6786CE303D9A9022998DC6CC8464D549AF75C0A
 out=${1:?缺少输出目录}
-: "${NGINX_SOURCE_SHA256:?缺少源码 SHA-256}"
 : "${BUILD_IMAGE:?缺少构建镜像标识}"
 : "${BUILD_COMMIT:?缺少构建提交标识}"
-[[ $NGINX_SOURCE_SHA256 =~ ^[a-fA-F0-9]{64}$ ]] || { echo '源码 SHA-256 必须为 64 位十六进制字符' >&2; exit 1; }
 [[ $(uname -m) == x86_64 ]] || { echo '仅支持 x86_64 构建' >&2; exit 1; }
 # shellcheck disable=SC1091
 source /etc/os-release
@@ -23,11 +23,30 @@ trap 'rm -rf -- "$work"' EXIT
 cd -- "$work"
 
 dnf install -y --enablerepo=powertools --setopt=install_weak_deps=False \
-    /usr/bin/curl gcc make binutils tar gzip openssl-devel pcre2-devel zlib-devel libxml2-devel libxslt-devel gd-devel
+    /usr/bin/curl gnupg2 gcc make binutils tar gzip openssl-devel pcre2-devel zlib-devel libxml2-devel libxslt-devel gd-devel
 
-curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' \
-    --output source.tar.gz "$url"
-printf '%s  source.tar.gz\n' "${NGINX_SOURCE_SHA256,,}" | sha256sum --check --strict
+download() {
+    curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' \
+        --output "$1" "$2"
+}
+download source.tar.gz "$url"
+download source.tar.gz.asc "$url.asc"
+download signer.key https://nginx.org/keys/pluknet.key
+
+mkdir -m 0700 -- "$work/gnupg"
+gpg_cmd=(gpg --batch --no-options --homedir "$work/gnupg" --no-auto-key-retrieve)
+"${gpg_cmd[@]}" --import signer.key
+"${gpg_cmd[@]}" --status-fd 1 --verify source.tar.gz.asc source.tar.gz > signature-status.txt
+if ! awk -v pinned="$signer_fingerprint" '
+    $1 == "[GNUPG:]" && $2 == "VALIDSIG" && $3 == pinned { verified = 1 }
+    END { exit !verified }
+' signature-status.txt; then
+    echo 'Nginx 源码签名与固定的签名者指纹不匹配' >&2
+    exit 1
+fi
+source_sha256=$(sha256sum source.tar.gz)
+source_sha256=${source_sha256%% *}
+echo "Nginx 源码签名验证通过：$signer_fingerprint"
 
 tar -xzf source.tar.gz
 cd -- "nginx-$version"
@@ -94,8 +113,8 @@ done < <(awk '$2 == "=>" && $3 ~ /^\// {print $1, $3}' "$bundle/BUILD-LINKS.txt"
 
 {
     printf 'target=Kylin Linux Advanced Server V10 (Halberd) x86_64\n'
-    printf 'build_image=%s\ncommit=%s\nsource=%s\nsource_sha256=%s\n' \
-        "$BUILD_IMAGE" "$BUILD_COMMIT" "$url" "${NGINX_SOURCE_SHA256,,}"
+    printf 'build_image=%s\ncommit=%s\nsource=%s\nsource_sha256=%s\nsource_signer_fingerprint=%s\n' \
+        "$BUILD_IMAGE" "$BUILD_COMMIT" "$url" "$source_sha256" "$signer_fingerprint"
     printf 'configure:'
     printf ' %q' "${options[@]}"
     printf '\n\nRPM packages in build environment:\n'
