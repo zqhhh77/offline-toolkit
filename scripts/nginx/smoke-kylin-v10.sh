@@ -19,13 +19,37 @@ cp -R -- "$source_dir" "$work/nginx"
 cd -- "$work/nginx"
 ./sbin/nginx -p "$PWD/" -t
 
-# 动态模块默认不启用；额外检查它们能在没有构建依赖的环境加载。
-{
-    printf 'load_module modules/%s;\n' \
-        ngx_http_xslt_filter_module.so ngx_http_image_filter_module.so \
-        ngx_mail_module.so ngx_stream_module.so
-    cat conf/nginx.conf
-} > conf/smoke.conf
+# 不加载外部模块，直接验证内置模块的指令和变量。
+cat > conf/smoke.conf <<'NGINX'
+events {}
+
+http {
+    server {
+        listen 127.0.0.1:8080;
+        location = /healthz { return 200 "offline-nginx-ok\n"; }
+        location /xslt { xslt_types application/xml; }
+        location /image { image_filter test; }
+    }
+}
+
+mail {
+    auth_http 127.0.0.1:8080/mail-auth;
+    server {
+        listen 127.0.0.1:1025;
+        protocol smtp;
+    }
+}
+
+stream {
+    log_format preread '$ssl_preread_protocol';
+    server {
+        listen 127.0.0.1:18443;
+        ssl_preread on;
+        access_log logs/stream-access.log preread;
+        proxy_pass 127.0.0.1:8080;
+    }
+}
+NGINX
 ./sbin/nginx -p "$PWD/" -t -c conf/smoke.conf
 
 ./sbin/nginx -p "$PWD/" -g 'daemon off;' -c conf/smoke.conf &

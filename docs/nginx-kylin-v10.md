@@ -6,7 +6,7 @@
 
 1. 将项目推送到 GitHub 仓库，确保工作流文件已进入默认分支。
 2. 在 **Actions → Build Nginx 1.31.10 for Kylin V10 (x86_64) → Run workflow** 选择 `main` 后运行，无需填写参数。CI 下载源码及其独立 PGP 签名，使用固定指纹的 Nginx 上游公钥验签；验签失败时不会解包或编译。
-3. 工作流在 GitHub 托管 runner 下载、构建、打包，并在无外网的干净 Rocky 容器中检查模块加载、配置和 HTTP 响应。测试通过后，在该次运行的 **Artifacts** 下载 `nginx-1.31.10-kylin-v10-halberd-x86_64`，从外层 ZIP 取出 `.tar.gz` 与 `.tar.gz.sha256`，一起传入离线服务器。保持 `.tar.gz` 原样，以保留可执行权限。
+3. 工作流在 GitHub 托管 runner 下载、构建、打包，并在无外网的干净 Rocky 容器中检查内置模块配置和 HTTP 响应。测试通过后，在该次运行的 **Artifacts** 下载 `nginx-1.31.10-kylin-v10-halberd-x86_64`，从外层 ZIP 取出 `.tar.gz` 与 `.tar.gz.sha256`，一起传入离线服务器。保持 `.tar.gz` 原样，以保留可执行权限。
 
 构建以 Rocky 8 标签解析出的镜像摘要运行，同次测试使用同一摘要；镜像标签及 RPM 仓库内容仍会更新。包内 `BUILD-INFO.txt` 记录实际镜像、源码哈希、构建参数和 RPM 版本，不承诺跨次构建逐字节一致。
 
@@ -43,4 +43,8 @@ test "$(id -u "$service_user")" -gt 0 &&
 
 ## 与参考构建参数的差异
 
-采用独立目录布局和 PCRE2，IPv6 无需旧的 `--with-ipv6` 开关。保留 SSL、HTTP/2 等常用功能；XSLT、图像滤镜、Mail 和 Stream 编译为动态模块，默认不启用，按需在配置顶层用 `load_module modules/<文件名>;` 加载。此构建不包含 Perl、Google perftools 或 HTTP degradation 模块。
+采用独立目录布局和 PCRE2，IPv6 无需旧的 `--with-ipv6` 开关。当前构建选用的模块都直接编进 `sbin/nginx`，包括 XSLT、图像滤镜、Mail、Stream、Stream SSL 和 SSL Preread。包内不提供独立的 Nginx 模块 `.so`，但仍需保留 `lib/` 下的运行库。
+
+在配置顶层写 `stream {}`（与 `http {}` 并列），在对应的 `stream` → `server` 中设置 `ssl_preread on;`，即可读取 TLS ClientHello 的 `$ssl_preread_protocol` 等变量，无需终止 TLS。
+
+从旧包迁移时，请删除这些已内置模块对应的 `load_module` 行（包括配置引用的其他文件中的行），再运行 `nginx -t`。未选用的模块不在包内，例如 Perl、Google perftools 和 HTTP degradation。
