@@ -14,11 +14,11 @@
 
 需要 Linux `x86_64`、Bash、`tar`、`sha256sum`，以及与 Rocky Linux 8 构建结果兼容的系统 glibc（构建基线 2.28）和 x86_64 ELF 加载器。其余采集到的 ELF 依赖放在 `lib/`，详见 `BUNDLED-LIBS.tsv`。部署和运行不需要在线软件源。
 
-推荐解包到 `/usr/local/nginx-1.31.10-kylin-v10-halberd-x86_64`。在两个产物文件所在目录，以管理员身份执行以下命令；将 `nginxsvc` 替换为服务器上已有的非 root 服务账号。解包目录已存在时会停止，不覆盖旧文件。
+默认部署目录为 `/usr/local/nginx`，压缩包文件名仍包含版本和目标架构。在两个产物文件所在目录，以管理员身份执行以下命令；将 `nginxsvc` 替换为服务器上已有的非 root 服务账号。目标目录已存在时会停止，不覆盖旧文件。
 
 ```bash
 pkg=nginx-1.31.10-kylin-v10-halberd-x86_64
-dest="/usr/local/$pkg"
+dest=/usr/local/nginx
 service_user=nginxsvc
 
 test "$(id -u "$service_user")" -gt 0 &&
@@ -26,19 +26,19 @@ test "$(id -u "$service_user")" -gt 0 &&
     mkdir -m 0755 -- "$dest" &&
     tar --no-same-owner -xzf "$pkg.tar.gz" -C "$dest" --strip-components=1 &&
     chown -R -- "$service_user" "$dest/logs" "$dest/run" "$dest/tmp" &&
-    runuser -u "$service_user" -- "$dest/nginxctl" -V &&
-    runuser -u "$service_user" -- "$dest/nginxctl" -t &&
-    runuser -u "$service_user" -- "$dest/nginxctl" &&
+    runuser -u "$service_user" -- "$dest/sbin/nginx" -V &&
+    runuser -u "$service_user" -- "$dest/sbin/nginx" -t &&
+    runuser -u "$service_user" -- "$dest/sbin/nginx" &&
     curl --noproxy '*' -fsS http://127.0.0.1:8080/healthz
 ```
 
-`/usr/local` 只是推荐路径；没有管理员权限时，也可以解包到自己的目录，用普通用户直接执行 `./nginxctl -t` 和 `./nginxctl`。部署到 `/usr/local` 后，配置由管理员维护，重载和停止仍使用启动服务的账号。
+`/usr/local/nginx` 是编译时的默认前缀，在该目录部署无需传 `-p`。解包到其他目录时，在解包后的目录内以普通用户运行 `./sbin/nginx -p "$PWD/" -t` 和 `./sbin/nginx -p "$PWD/"`，重载及停止也须使用相同的 `-p`。配置由管理员维护时，重载和停止仍使用启动服务的账号。
 
 健康检查应返回 `offline-nginx-ok`。`curl` 仅用于测试，不是服务依赖。校验或配置检查失败时，不要继续启动；遇到 `GLIBC_* not found` 或 `cannot open shared object file`，请记录完整错误及 `getconf GNU_LIBC_VERSION` 输出，不要替换麒麟系统的 glibc。
 
-- `nginxctl` 负责定位包内库和运行前缀，请通过它运行，不要直接调用 `sbin/nginx`。
+- `sbin/nginx` 就是原生二进制，会自动从包内 `lib/` 查找随包分发的动态库，无需启动脚本或设置 `LD_LIBRARY_PATH`。
 - 配置在 `conf/nginx.conf`，默认只监听 `127.0.0.1:8080`；按需修改端口和监听地址，部署证书、代理地址等由实际环境决定。
-- 重载：`./nginxctl -t && ./nginxctl -s reload`。停止：`./nginxctl -s quit`。该包不注册 systemd 服务。
+- 在默认部署目录内，重载：`./sbin/nginx -t && ./sbin/nginx -s reload`。停止：`./sbin/nginx -s quit`。该包不注册 systemd 服务。
 - 卸载：确认进程已经退出后，备份自定义配置、日志和站点数据，再删除解压目录。不覆盖 `/etc/nginx` 或 `/usr/sbin/nginx`。
 
 ## 与参考构建参数的差异

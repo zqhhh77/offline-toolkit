@@ -5,6 +5,7 @@ export LC_ALL=C
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
 version=1.31.10
 name="nginx-${version}-kylin-v10-halberd-x86_64"
+prefix=/usr/local/nginx
 url="https://nginx.org/download/nginx-${version}.tar.gz"
 # Nginx 官网发布的 Sergey Kandaurov 公钥；更新源码版本时重新核对签名者。
 signer_fingerprint=D6786CE303D9A9022998DC6CC8464D549AF75C0A
@@ -24,6 +25,9 @@ cd -- "$work"
 
 dnf install -y --enablerepo=powertools --setopt=install_weak_deps=False \
     /usr/bin/curl gnupg2 gcc make binutils tar gzip openssl-devel pcre2-devel zlib-devel libxml2-devel libxslt-devel gd-devel
+# 仅构建容器需要 patchelf；目标服务器无需安装。
+dnf install -y epel-release
+dnf install -y --setopt=install_weak_deps=False patchelf
 
 download() {
     curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' \
@@ -51,7 +55,7 @@ echo "Nginx 源码签名验证通过：$signer_fingerprint"
 tar -xzf source.tar.gz
 cd -- "nginx-$version"
 options=(
-    --prefix=/opt/offline-nginx
+    --prefix="$prefix"
     --sbin-path=sbin/nginx --modules-path=modules --conf-path=conf/nginx.conf
     --error-log-path=logs/error.log --http-log-path=logs/access.log
     --pid-path=run/nginx.pid --lock-path=run/nginx.lock
@@ -74,9 +78,8 @@ make -j"$(nproc)"
 make install DESTDIR="$work/stage"
 
 bundle="$work/$name"
-mv -- "$work/stage/opt/offline-nginx" "$bundle"
+mv -- "$work/stage$prefix" "$bundle"
 mkdir -p -- "$bundle"/{lib,run,logs,tmp,licenses}
-install -m 0755 "$repo/scripts/nginx/nginxctl.sh" "$bundle/nginxctl"
 install -m 0644 "$repo/configs/nginx/nginx.conf" "$bundle/conf/nginx.conf"
 install -m 0644 "$repo/docs/nginx-kylin-v10.md" "$bundle/README.md"
 install -m 0644 LICENSE "$bundle/licenses/nginx-LICENSE"
@@ -110,6 +113,12 @@ while read -r soname path; do
         done < <(rpm -qL "$rpm_name")
     fi
 done < <(awk '$2 == "=>" && $3 ~ /^\// {print $1, $3}' "$bundle/BUILD-LINKS.txt" | sort -u)
+
+# DT_RPATH 也用于间接依赖；二进制和模块均位于 lib 的相邻目录。
+for elf in "$bundle/sbin/nginx" "${modules[@]}"; do
+    patchelf --force-rpath --set-rpath '$ORIGIN/../lib' "$elf"
+    [[ $(patchelf --print-rpath "$elf") == '$ORIGIN/../lib' ]]
+done
 
 {
     printf 'target=Kylin Linux Advanced Server V10 (Halberd) x86_64\n'

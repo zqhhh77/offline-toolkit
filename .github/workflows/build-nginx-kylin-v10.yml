@@ -45,6 +45,7 @@ jobs:
           docker run --rm --pull never --platform linux/amd64 --network none \
             --user 10000:10000 --cap-drop ALL --security-opt no-new-privileges \
             --read-only --tmpfs /work:rw,exec,nosuid,nodev,mode=1777 \
+            --tmpfs /usr/local:rw,exec,nosuid,nodev,mode=1777 \
             --mount "type=bind,source=$extracted/$PACKAGE,target=/package,readonly" \
             --mount "type=bind,source=$PWD/scripts/nginx/smoke-kylin-v10.sh,target=/smoke.sh,readonly" \
             "$BUILD_IMAGE" bash /smoke.sh /package

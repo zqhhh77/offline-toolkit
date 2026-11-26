@@ -3,13 +3,21 @@ set -euo pipefail
 
 source_dir=${1:?缺少解压包路径}
 test "$(id -u)" -ne 0
+unset LD_LIBRARY_PATH
+default_dir=/usr/local/nginx
+cp -R -- "$source_dir" "$default_dir"
+test ! -e "$default_dir/nginxctl"
+
+# 从包之外检查默认前缀，不传 -p 或 -c。
+cd /
+version=$("$default_dir/sbin/nginx" -v 2>&1)
+[[ $version == 'nginx version: nginx/1.31.10' ]]
+"$default_dir/sbin/nginx" -t
+
 work=$(mktemp -d /work/nginx-smoke.XXXXXX)
 cp -R -- "$source_dir" "$work/nginx"
 cd -- "$work/nginx"
-
-version=$(./nginxctl -v 2>&1)
-[[ $version == 'nginx version: nginx/1.31.10' ]]
-./nginxctl -t
+./sbin/nginx -p "$PWD/" -t
 
 # 动态模块默认不启用；额外检查它们能在没有构建依赖的环境加载。
 {
@@ -18,9 +26,9 @@ version=$(./nginxctl -v 2>&1)
         ngx_mail_module.so ngx_stream_module.so
     cat conf/nginx.conf
 } > conf/smoke.conf
-./nginxctl -t -c conf/smoke.conf
+./sbin/nginx -p "$PWD/" -t -c conf/smoke.conf
 
-./nginxctl -g 'daemon off;' -c conf/smoke.conf &
+./sbin/nginx -p "$PWD/" -g 'daemon off;' -c conf/smoke.conf &
 nginx_pid=$!
 cleanup() {
     kill -QUIT "$nginx_pid" 2>/dev/null || true
